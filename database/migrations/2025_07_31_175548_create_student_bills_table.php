@@ -33,7 +33,11 @@ return new class extends Migration
             $table->foreign('academic_year_id')->references('id')->on('academic_years')->onDelete('cascade');
             $table->foreign('payment_type_id')->references('id')->on('payment_types')->onDelete('cascade');
 
-            $table->unique(['student_id', 'payment_type_id', 'bill_month', 'bill_year']);
+            $table->unique(
+                ['student_id', 'payment_type_id', 'bill_month', 'bill_year'],
+                'student_bills_unique_bill'
+            );
+
             $table->index(['student_id', 'status']);
             $table->index(['due_date', 'status']);
             $table->index(['academic_year_id', 'bill_month', 'bill_year']);

@@ -6,34 +6,29 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('username', 50)->unique();
-            $table->string('email', 100)->unique();
+            $table->string('name');
+            $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
-            $table->string('password', 255);
-            $table->enum('role', ['admin', 'parent', 'student']);
+
+            // Role untuk multi-role authentication
+            $table->enum('role', ['admin', 'parent', 'student'])->default('parent');
+
+            $table->string('password');
             $table->uuid('school_id')->nullable();
             $table->boolean('is_active')->default(true);
+            $table->string('last_login')->nullable();
             $table->timestamp('last_login_at')->nullable();
-            $table->rememberToken();
-            $table->timestamp('created_at')->useCurrent();
-            $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
 
-            $table->foreign('school_id')->references('id')->on('schools')->onDelete('set null');
-            $table->index(['role', 'is_active']);
-            $table->index(['school_id']);
+            $table->rememberToken();
+            $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('users');

@@ -51,14 +51,14 @@ class Payment extends Model
         });
 
         static::updated(function ($model) {
-            // Update related bills status when payment status changes
+            // Hanya update bills kalau status berubah menjadi success
             if ($model->isDirty('status') && $model->status === 'success') {
                 $model->updateBillsStatus();
             }
         });
     }
 
-    // Relationships
+    // ---------------- RELATIONSHIPS ----------------
     public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
@@ -84,7 +84,7 @@ class Payment extends Model
         return StudentBill::whereIn('id', $this->bill_ids ?? []);
     }
 
-    // Scopes
+    // ---------------- SCOPES ----------------
     public function scopePending($query)
     {
         return $query->where('status', 'pending');
@@ -128,69 +128,43 @@ class Payment extends Model
     public function scopeThisMonth($query)
     {
         return $query->whereMonth('payment_date', now()->month)
-                    ->whereYear('payment_date', now()->year);
+                     ->whereYear('payment_date', now()->year);
     }
 
-    // Helper Methods
+    // ---------------- ACCESSORS ----------------
     public function getStatusColorAttribute()
     {
-        $colors = [
+        return [
             'pending' => 'warning',
             'processing' => 'info',
             'success' => 'success',
             'failed' => 'danger',
             'cancelled' => 'secondary',
-        ];
-
-        return $colors[$this->status] ?? 'secondary';
+        ][$this->status] ?? 'secondary';
     }
 
     public function getStatusNameAttribute()
     {
-        $statuses = [
+        return [
             'pending' => 'Menunggu',
             'processing' => 'Diproses',
             'success' => 'Berhasil',
             'failed' => 'Gagal',
             'cancelled' => 'Dibatalkan',
-        ];
-
-        return $statuses[$this->status] ?? $this->status;
+        ][$this->status] ?? $this->status;
     }
 
-    public function isPending()
-    {
-        return $this->status === 'pending';
-    }
-
-    public function isProcessing()
-    {
-        return $this->status === 'processing';
-    }
-
-    public function isSuccess()
-    {
-        return $this->status === 'success';
-    }
-
-    public function isFailed()
-    {
-        return $this->status === 'failed';
-    }
-
-    public function isCancelled()
-    {
-        return $this->status === 'cancelled';
-    }
-
-    public function isCompleted()
-    {
-        return in_array($this->status, ['success', 'failed', 'cancelled']);
-    }
+    // ---------------- STATUS HELPERS ----------------
+    public function isPending() { return $this->status === 'pending'; }
+    public function isProcessing() { return $this->status === 'processing'; }
+    public function isSuccess() { return $this->status === 'success'; }
+    public function isFailed() { return $this->status === 'failed'; }
+    public function isCancelled() { return $this->status === 'cancelled'; }
+    public function isCompleted() { return in_array($this->status, ['success', 'failed', 'cancelled']); }
 
     public function canBeVerified()
     {
-        return $this->isPending() && $this->paymentMethod->requiresProof();
+        return $this->isPending() && optional($this->paymentMethod)->requiresProof();
     }
 
     public function canBeCancelled()
@@ -198,7 +172,7 @@ class Payment extends Model
         return in_array($this->status, ['pending', 'processing']);
     }
 
-    // Generate unique payment code
+    // ---------------- BUSINESS LOGIC ----------------
     public static function generatePaymentCode($prefix = 'PAY')
     {
         do {
@@ -208,12 +182,9 @@ class Payment extends Model
         return $code;
     }
 
-    // Update bills status based on payment
     public function updateBillsStatus()
     {
-        if (!$this->isSuccess()) {
-            return;
-        }
+        if (!$this->isSuccess()) return;
 
         foreach ($this->paymentDetails as $detail) {
             $bill = $detail->bill;
@@ -223,13 +194,12 @@ class Payment extends Model
 
             if ($totalPaid >= $bill->final_amount) {
                 $bill->markAsPaid();
-            } else if ($totalPaid > 0) {
+            } elseif ($totalPaid > 0) {
                 $bill->markAsPartial();
             }
         }
     }
 
-    // Verify payment (for manual verification)
     public function verify($verifiedBy, $notes = null)
     {
         $this->update([
@@ -239,19 +209,12 @@ class Payment extends Model
             'notes' => $notes,
         ]);
 
-        // Update bills status
         $this->updateBillsStatus();
-
-        // Send notification
-        // NotificationService::sendPaymentSuccessNotification($this);
     }
 
-    // Cancel payment
     public function cancel($reason = null)
     {
-        if (!$this->canBeCancelled()) {
-            return false;
-        }
+        if (!$this->canBeCancelled()) return false;
 
         $this->update([
             'status' => 'cancelled',
@@ -261,7 +224,6 @@ class Payment extends Model
         return true;
     }
 
-    // Mark as failed
     public function markAsFailed($reason = null)
     {
         $this->update([
@@ -270,32 +232,28 @@ class Payment extends Model
         ]);
     }
 
-    // Get payment proof URL
     public function getPaymentProofUrlAttribute()
     {
         return $this->payment_proof ? asset('storage/' . $this->payment_proof) : null;
     }
 
-    // Get total amount including admin fee
     public function getGrandTotalAttribute()
     {
         return $this->total_amount + $this->admin_fee;
     }
 
-    // Get payment details with bill information
     public function getPaymentDetailsWithBills()
     {
         return $this->paymentDetails()->with('bill.paymentType')->get();
     }
 
-    // Create payment with details
     public static function createPayment($studentId, $billIds, $paymentMethodId, $paymentData = [])
     {
         $bills = StudentBill::whereIn('id', $billIds)->get();
         $totalAmount = $bills->sum('final_amount');
 
         $paymentMethod = PaymentMethod::find($paymentMethodId);
-        $adminFee = $paymentMethod->getAdminFee($totalAmount);
+        $adminFee = $paymentMethod ? $paymentMethod->getAdminFee($totalAmount) : 0;
 
         $payment = self::create(array_merge([
             'student_id' => $studentId,
@@ -305,10 +263,9 @@ class Payment extends Model
             'paid_amount' => $totalAmount + $adminFee,
             'admin_fee' => $adminFee,
             'payment_date' => now(),
-            'status' => $paymentMethod->isAutomated() ? 'processing' : 'pending',
+            'status' => $paymentMethod && $paymentMethod->isAutomated() ? 'processing' : 'pending',
         ], $paymentData));
 
-        // Create payment details
         foreach ($bills as $bill) {
             PaymentDetail::create([
                 'payment_id' => $payment->id,
@@ -320,7 +277,6 @@ class Payment extends Model
         return $payment;
     }
 
-    // Get monthly payment statistics
     public static function getMonthlyStats($schoolId = null, $month = null, $year = null)
     {
         $query = self::query()->success();
